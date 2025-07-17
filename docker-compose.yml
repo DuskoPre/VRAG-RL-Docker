@@ -1,260 +1,297 @@
-# VRAG Docker Setup Guide
-
-This guide provides a complete Docker containerization setup for the VRAG (Visual Retrieval-Augmented Generation) application from Alibaba-NLP.
-
-## Prerequisites
-
-- Docker with GPU support (Docker Desktop with NVIDIA Container Toolkit)
-- NVIDIA GPU with CUDA support (recommended: A100 80G or similar)
-- At least 32GB RAM
-- 50GB+ free disk space
-
-## Quick Start
-
-### 1. Build the Docker Image
-
-```bash
-# Clone the repository and navigate to it
-git clone https://github.com/Alibaba-NLP/VRAG.git
-cd VRAG
-
-# Copy the Dockerfile to the repository root
-# (Copy the Dockerfile content from the previous artifact)
-
-# Build the Docker image
-docker build -t vrag-app .
-```
-
-### 2. Run the Container (Single Container Mode)
-
-```bash
-# Run the container with GPU support
-docker run -it --gpus all \
-    -p 8001:8001 \
-    -p 8002:8002 \
-    -p 8501:8501 \
-    -v $(pwd)/search_engine/corpus:/app/search_engine/corpus \
-    -v $(pwd)/models:/app/models \
-    vrag-app
-```
-
-### 3. Access the Application
-
-- **Streamlit Demo**: http://localhost:8501
-- **VLM API**: http://localhost:8001
-- **Search Engine API**: http://localhost:8002
-
-## Multi-Service Setup with Docker Compose
-
-### 1. Use Docker Compose (Recommended)
-
-```bash
-# Use the docker-compose.yml from the Docker image
-docker-compose up -d
-```
-
-### 2. Check Service Status
-
-```bash
-# Check all services
-docker-compose ps
-
-# Check logs
-docker-compose logs -f vrag-demo
-```
-
-## Setting Up Your Own Corpus
-
-### 1. Prepare Your Documents
-
-```bash
-# Create the corpus directory
-mkdir -p search_engine/corpus/img
-mkdir -p search_engine/corpus/pdf
-
-# Place your PDF documents in search_engine/corpus/pdf/
-# Or place your JPG images directly in search_engine/corpus/img/
-```
-
-### 2. Run Corpus Setup
-
-```bash
-# Enter the container
-docker exec -it vrag-app bash
-
-# Run the corpus setup script
-./setup_corpus.sh
-```
-
-### 3. Manual Corpus Setup (if needed)
-
-```bash
-# Convert PDFs to images (if you have PDFs)
-python search_engine/corpus/pdf2images.py
-
-# Test the embedding model
-python ./search_engine/vl_embedding.py
-
-# Run document ingestion
-python ./search_engine/ingestion.py
-```
-
-## Service Configuration
-
-### Environment Variables
-
-You can customize the behavior using environment variables:
-
-```bash
-# Docker run with custom environment
-docker run -it --gpus all \
-    -p 8001:8001 -p 8002:8002 -p 8501:8501 \
-    -e SEARCH_URL=http://localhost:8002/search \
-    -e VLM_URL=http://localhost:8001/v1 \
-    -e CUDA_VISIBLE_DEVICES=0 \
-    -v $(pwd)/search_engine/corpus:/app/search_engine/corpus \
-    vrag-app
-```
-
-### Model Configuration
-
-The setup uses these models by default:
-- **VLM Model**: `autumncc/Qwen2.5-VL-7B-VRAG`
-- **Embedding Model**: `vidore/colqwen2-v1.0`
-
-To use different models, modify the startup scripts or environment variables.
-
-## API Usage
-
-### Python API Example
-
-```python
-from vrag_agent import VRAG
-
-# Initialize VRAG agent
-vrag = VRAG(
-    base_url='http://localhost:8001/v1',
-    search_url='http://localhost:8002/search',
-    generator=False
-)
-
-# Ask a question
-answer = vrag.run('What is the capital of France?')
-print(answer)
-```
-
-### REST API Example
-
-```bash
-# Search API
-curl -X POST "http://localhost:8002/search" \
-    -H "Content-Type: application/json" \
-    -d '{"query": "your search query"}'
-
-# VLM API (OpenAI-compatible)
-curl -X POST "http://localhost:8001/v1/chat/completions" \
-    -H "Content-Type: application/json" \
-    -d '{
-        "model": "Qwen/Qwen2.5-VL-7B-Instruct",
-        "messages": [{"role": "user", "content": "Hello"}]
-    }'
-```
-
-## Resource Requirements
-
-### Minimum Requirements
-- **GPU**: 1x NVIDIA GPU with 16GB+ VRAM
-- **RAM**: 32GB system RAM
-- **Storage**: 50GB free space
-
-### Recommended Requirements
-- **GPU**: 1x NVIDIA A100 80G or similar
-- **RAM**: 64GB+ system RAM
-- **Storage**: 100GB+ SSD
-
-## Troubleshooting
-
-### Common Issues
-
-1. **GPU Not Detected**
-   ```bash
-   # Check GPU support
-   docker run --gpus all nvidia/cuda:12.1-base-ubuntu22.04 nvidia-smi
-   ```
-
-2. **Out of Memory**
-   ```bash
-   # Reduce batch size or use smaller model
-   # Modify the vllm serve command in start_services.sh
-   ```
-
-3. **Service Not Starting**
-   ```bash
-   # Check service logs
-   docker-compose logs vrag-search
-   docker-compose logs vrag-vlm
-   docker-compose logs vrag-demo
-   ```
-
-4. **Model Download Issues**
-   ```bash
-   # Pre-download models
-   python -c "from transformers import AutoModel; AutoModel.from_pretrained('autumncc/Qwen2.5-VL-7B-VRAG')"
-   ```
-
-### Performance Optimization
-
-1. **Enable GPU Memory Optimization**
-   ```bash
-   # Add to vllm serve command
-   --gpu-memory-utilization 0.8 --max-num-seqs 16
-   ```
-
-2. **Use Quantization**
-   ```bash
-   # Add quantization to reduce memory usage
-   --quantization awq
-   ```
-
-## Development Setup
-
-### For Development
-
-```bash
-# Mount source code for development
-docker run -it --gpus all \
-    -p 8001:8001 -p 8002:8002 -p 8501:8501 \
-    -v $(pwd):/app \
-    -v $(pwd)/search_engine/corpus:/app/search_engine/corpus \
-    vrag-app bash
-
-# Install additional development dependencies
-pip install jupyter notebook ipython
-```
-
-### Building Custom Images
-
-```bash
-# Build with custom base image
-docker build --build-arg BASE_IMAGE=nvidia/cuda:12.1-devel-ubuntu22.04 -t vrag-custom .
-
-# Build with specific Python version
-docker build --build-arg PYTHON_VERSION=3.10 -t vrag-py310 .
-```
-
-## Security Considerations
-
-1. **Network Security**: The container exposes multiple ports. Use proper firewall rules in production.
-2. **Model Security**: Models are downloaded from public repositories. Verify checksums if needed.
-3. **Data Security**: Your corpus data is mounted as volumes. Ensure proper permissions.
-
-## License and Attribution
-
-This Docker setup is based on the VRAG project by Alibaba-NLP. Please refer to the original repository for licensing information and proper attribution.
-
-## Support
-
-For issues related to:
-- **Docker setup**: Check this guide and Docker documentation
-- **VRAG application**: Visit the [original repository](https://github.com/Alibaba-NLP/VRAG)
-- **Model issues**: Check the respective model repositories on Hugging Face
+version: '3.8'
+
+services:
+  vrag-search:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final
+    image: vrag-app:latest
+    container_name: vrag-search-engine
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./search_engine/corpus:/app/search_engine/corpus
+      - ./models:/app/models
+      - vrag_data:/app/data
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTHONPATH=/app
+      - SEARCH_PORT=8002
+    networks:
+      - vrag-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: >
+      bash -c "
+        echo 'Starting search engine server...' &&
+        cd /app &&
+        python search_engine/search_engine_api.py
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  vrag-vlm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final
+    image: vrag-app:latest
+    container_name: vrag-vlm-server
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./models:/app/models
+      - vrag_data:/app/data
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTHONPATH=/app
+      - VLM_PORT=8001
+    networks:
+      - vrag-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: >
+      bash -c "
+        echo 'Starting VLM server...' &&
+        cd /app &&
+        vllm serve autumncc/Qwen2.5-VL-7B-VRAG 
+        --port 8001 
+        --host 0.0.0.0 
+        --limit-mm-per-prompt image=10 
+        --served-model-name Qwen/Qwen2.5-VL-7B-Instruct
+        --gpu-memory-utilization 0.8
+        --max-num-seqs 16
+      "
+    depends_on:
+      vrag-search:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+
+  vrag-demo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final
+    image: vrag-app:latest
+    container_name: vrag-streamlit-demo
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./search_engine/corpus:/app/search_engine/corpus
+      - ./models:/app/models
+      - vrag_data:/app/data
+    environment:
+      - SEARCH_URL=http://vrag-search:8002/search
+      - VLM_URL=http://vrag-vlm:8001/v1
+      - PYTHONPATH=/app
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+    networks:
+      - vrag-network
+    command: >
+      bash -c "
+        echo 'Waiting for dependencies...' &&
+        sleep 30 &&
+        echo 'Starting Streamlit demo...' &&
+        cd /app &&
+        streamlit run demo/app.py 
+        --server.port 8501 
+        --server.address 0.0.0.0
+        --server.headless true
+        --server.enableCORS false
+        --server.enableXsrfProtection false
+      "
+    depends_on:
+      vrag-search:
+        condition: service_healthy
+      vrag-vlm:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  # Optional: Corpus setup service (run once)
+  vrag-setup:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final
+    image: vrag-app:latest
+    container_name: vrag-corpus-setup
+    volumes:
+      - ./search_engine/corpus:/app/search_engine/corpus
+      - ./models:/app/models
+      - vrag_data:/app/data
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTHONPATH=/app
+    networks:
+      - vrag-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: >
+      bash -c "
+        echo 'Setting up corpus...' &&
+        cd /app &&
+        ./setup_corpus.sh &&
+        echo 'Corpus setup complete!'
+      "
+    profiles:
+      - setup
+    restart: "no"
+
+networks:
+  vrag-network:
+    driver: bridge
+
+volumes:
+  vrag_data:
+    driver: local
+
+# Additional configurations for different environments
+x-common-variables: &common-variables
+  PYTHONPATH: /app
+  CUDA_VISIBLE_DEVICES: 0
+
+x-gpu-resources: &gpu-resources
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+
+# Production override example
+# Use with: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+---
+# docker-compose.prod.yml
+version: '3.8'
+
+services:
+  vrag-search:
+    environment:
+      - SEARCH_PORT=8002
+      - LOG_LEVEL=INFO
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  vrag-vlm:
+    environment:
+      - VLM_PORT=8001
+      - LOG_LEVEL=INFO
+    deploy:
+      resources:
+        limits:
+          memory: 32G
+        reservations:
+          memory: 16G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  vrag-demo:
+    environment:
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - LOG_LEVEL=INFO
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+# Development override example
+# Use with: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+---
+# docker-compose.dev.yml
+version: '3.8'
+
+services:
+  vrag-search:
+    volumes:
+      - .:/app
+      - ./search_engine/corpus:/app/search_engine/corpus
+      - ./models:/app/models
+    environment:
+      - DEBUG=1
+      - LOG_LEVEL=DEBUG
+    command: >
+      bash -c "
+        echo 'Starting search engine in development mode...' &&
+        cd /app &&
+        python -m debugpy --listen 0.0.0.0:5678 --wait-for-client search_engine/search_engine_api.py
+      "
+    ports:
+      - "8002:8002"
+      - "5678:5678"  # Debug port
+
+  vrag-vlm:
+    volumes:
+      - .:/app
+      - ./models:/app/models
+    environment:
+      - DEBUG=1
+      - LOG_LEVEL=DEBUG
+
+  vrag-demo:
+    volumes:
+      - .:/app
+      - ./search_engine/corpus:/app/search_engine/corpus
+      - ./models:/app/models
+    environment:
+      - DEBUG=1
+      - LOG_LEVEL=DEBUG
+      - STREAMLIT_SERVER_RUN_ON_SAVE=true
+    command: >
+      bash -c "
+        echo 'Starting Streamlit in development mode...' &&
+        cd /app &&
+        streamlit run demo/app.py 
+        --server.port 8501 
+        --server.address 0.0.0.0
+        --server.headless true
+        --server.fileWatcherType auto
+        --server.runOnSave true
+      "
